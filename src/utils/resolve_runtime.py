@@ -57,6 +57,73 @@ MACOS_RESOLVE_APPS = (
 )
 
 
+#: Shells tried, in order, to read Windows command lines. Windows PowerShell
+#: ships with every supported Windows; `pwsh` is the successor and is present on
+#: machines where the old one has been removed. Both are tried because neither
+#: is guaranteed, and "cannot tell" is an expensive answer here.
+_WINDOWS_SHELLS = ("powershell.exe", "pwsh.exe")
+
+#: Windows command lines come from WMI via CIM, not from `wmic`.
+#:
+#: `wmic` was deprecated in Windows 10 21H1 and is **absent** from current
+#: Windows 11 builds — confirmed missing on 11 Home 26200, where every call
+#: raised FileNotFoundError, `_process_lines` returned None, and `runtime_mode`
+#: reported nothing running while Resolve was open on screen. `server.py`'s
+#: `_not_connected_error` then told the user to "start DaVinci Resolve and open
+#: a project" — the one instruction that could not help, since the real fault
+#: was that the free edition refuses external scripting.
+#:
+#: `Get-CimInstance Win32_Process` reads the same WMI class `wmic` did, so the
+#: output shape is unchanged: one full command line per process, quoted
+#: executable included, `-nogui` still visible.
+#:
+#: `CommandLine` is null for a process the caller may not read (another user's,
+#: or one running elevated). Falling back to `ExecutablePath` keeps *running*
+#: answerable in that case; the flags are lost, so `headless` computes False.
+#: That is the safe direction to be wrong in — a caller that wrongly assumes a
+#: UI takes the careful path around modals, while a wrong "headless" makes it
+#: wait forever on a dialog nothing will dismiss.
+#:
+#: The encoding line matters: PowerShell 5.1 writes stdout in the console
+#: codepage, and a non-ASCII install path would otherwise arrive mangled.
+_WINDOWS_PROCESS_QUERY = (
+    "[Console]::OutputEncoding=[Text.Encoding]::UTF8;"
+    "$ErrorActionPreference='Stop';"
+    "try {"
+    " Get-CimInstance Win32_Process -Filter \"name='Resolve.exe'\" |"
+    " ForEach-Object {"
+    " if ($_.CommandLine) { $_.CommandLine }"
+    " elseif ($_.ExecutablePath) { $_.ExecutablePath } }"
+    "} catch { exit 1 }"
+)
+
+
+def _windows_process_lines() -> Optional[List[str]]:
+    """Resolve's command lines on Windows, or None when they cannot be read.
+
+    Only a clean exit is trusted. A shell that is missing, or that fails the
+    query, moves on to the next candidate; when none succeeds the answer is
+    None. An empty stdout on a clean exit is a real answer — nothing matched the
+    filter — and must stay distinct from the failure, because only one of those
+    two means "no Resolve is running".
+    """
+    for shell in _WINDOWS_SHELLS:
+        try:
+            out = subprocess.run(
+                [shell, "-NoProfile", "-NonInteractive", "-Command", _WINDOWS_PROCESS_QUERY],
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+                # Longer than the old `wmic` budget: a cold PowerShell start on a
+                # loaded machine is seconds, and timing out here is indistinguishable
+                # from "nothing is running".
+                timeout=20, check=False,
+            )
+        except Exception:
+            continue
+        if out.returncode == 0:
+            return (out.stdout or "").splitlines()
+    return None
+
+
 def _process_lines() -> Optional[List[str]]:
     """Every running command line, or None when that cannot be determined.
 
@@ -67,25 +134,12 @@ def _process_lines() -> Optional[List[str]]:
     try:
         if platform.system().lower() == "windows":
             # `tasklist` prints no command line, so the flag is invisible there.
-            # WMIC does print it and is what makes headless detection possible.
-            #
-            # Decoded explicitly: `text=True` alone decodes with the locale
-            # codepage, which raises UnicodeDecodeError on a byte cp1252 has no
-            # mapping for — and this read is the input to the second-instance
-            # guard, so it must fail to "cannot tell", never to an exception.
-            # ASCII is byte-identical under both codecs, so the matching this
-            # feeds is unchanged; what WMIC emits for a non-ASCII install path
-            # on a non-English Windows is not something we can verify here.
-            out = subprocess.run(
-                ["wmic", "process", "where", "name='Resolve.exe'", "get", "CommandLine"],
-                capture_output=True, text=True, encoding="utf-8", errors="replace",
-                timeout=10, check=False,
-            )
-        else:
-            out = subprocess.run(
-                ["ps", "-Ao", "command="], capture_output=True, text=True,
-                encoding="utf-8", errors="replace", timeout=10, check=False,
-            )
+            # WMI does print it and is what makes headless detection possible.
+            return _windows_process_lines()
+        out = subprocess.run(
+            ["ps", "-Ao", "command="], capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=10, check=False,
+        )
         if out.returncode != 0 and not out.stdout:
             return None
         return (out.stdout or "").splitlines()
