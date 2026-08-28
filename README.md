@@ -52,6 +52,18 @@ python scripts/install_resolve_bridge.py
 # restart Resolve, open a project, then: Workspace > Scripts > resolve_bridge
 ```
 
+The menu click is needed once per Resolve session, because the bridge only
+works when Resolve itself launches it. On **Windows** it can be automated —
+Resolve's menu bar is a UI Automation tree, so this walks it and invokes the
+entry, then waits for the listener before reporting success:
+
+```bash
+python scripts/start_resolve_bridge.py
+```
+
+It will not launch Resolve or open a project; an already-running bridge is left
+alone. macOS and Linux still click the menu by hand.
+
 Once that listener is running it is used **automatically** whenever external
 scripting is unavailable — no environment variable required. Setting
 `DAVINCI_RESOLVE_BRIDGE=1` *forces* the bridge instead: it becomes the only

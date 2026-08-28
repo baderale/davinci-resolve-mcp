@@ -49,6 +49,16 @@ python scripts/install_resolve_bridge.py
 # 重启 Resolve，打开一个项目，然后：Workspace > Scripts > resolve_bridge
 ```
 
+每个 Resolve 会话都需要点一次该菜单项，因为桥接只有在由 Resolve 自己启动时才有效。在 **Windows**
+上这一步可以自动完成——Resolve 的菜单栏是一棵 UI Automation 树，脚本会遍历它并触发该菜单项，然后
+等到监听器真正就绪才报告成功：
+
+```bash
+python scripts/start_resolve_bridge.py
+```
+
+它不会启动 Resolve，也不会打开项目；若桥接已在运行则原样保留。macOS 和 Linux 仍需手动点击菜单。
+
 监听器一旦运行，只要外部脚本控制不可用，服务器就会**自动**使用它——无需设置任何环境变量。设置
 `DAVINCI_RESOLVE_BRIDGE=1` 则是*强制*走桥接：它会成为唯一尝试的传输方式，因此桥接一旦停止响应会
 直接报错，而不会悄悄回退到其他传输。当你明确要依赖桥接时使用它。
