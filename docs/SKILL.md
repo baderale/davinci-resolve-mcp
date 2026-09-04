@@ -24,7 +24,9 @@ edition `scriptapp("Resolve")` refuses a foreign process regardless. A third
 transport reaches it — a script run from **Workspace ▸ Scripts** is handed the
 live `resolve` object on any edition and re-exports it over an authenticated
 loopback listener. Install with `python scripts/install_resolve_bridge.py` and
-start it from that menu; once running it is used automatically when external
+start it from that menu — or, on Windows, with
+`python scripts/start_resolve_bridge.py`, which drives that menu for you; once
+running it is used automatically when external
 scripting is unavailable, with no environment variable needed.
 `DAVINCI_RESOLVE_BRIDGE=1` *forces* it — the bridge becomes the only transport
 tried, so its faults surface directly instead of degrading to another path.
